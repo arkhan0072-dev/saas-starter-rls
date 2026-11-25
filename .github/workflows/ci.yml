@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    name: Code style and static analysis
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          coverage: none
+
+      - run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Pint
+        run: vendor/bin/pint --test
+
+      - name: PHPStan (max level)
+        run: vendor/bin/phpstan analyse --no-progress
+
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4"]
+
+    name: Tests on PHP ${{ matrix.php }}
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: owner
+          POSTGRES_PASSWORD: owner
+          POSTGRES_DB: saas
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready -U owner"
+          --health-interval 2s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the app role and test database
+        run: psql "postgresql://owner:owner@127.0.0.1:54329/saas" -v ON_ERROR_STOP=1 -f docker/postgres/init.sql
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_pgsql
+          coverage: pcov
+
+      - run: composer install --prefer-dist --no-interaction --no-progress
+
+      - run: cp .env.example .env && php artisan key:generate
+
+      - name: Tests (fails below 100% coverage)
+        run: vendor/bin/pest --coverage --min=100
