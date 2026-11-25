@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\Role;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -33,6 +34,7 @@ class AuthController extends Controller
                 'email' => $request->string('email')->value(),
                 'password' => $request->string('password')->value(),
             ]);
+            $user->role = Role::Owner;
             $user->tenant()->associate($tenant)->save();
 
             return $user;

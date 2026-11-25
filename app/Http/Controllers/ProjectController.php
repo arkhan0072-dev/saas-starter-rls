@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Project;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Response;
 
 class ProjectController extends Controller
 {
@@ -19,5 +20,12 @@ class ProjectController extends Controller
         $request->validate(['name' => ['required', 'string', 'max:255']]);
 
         return new JsonResource(Project::create(['name' => $request->string('name')->value()]));
+    }
+
+    public function destroy(Project $project): Response
+    {
+        $project->delete();
+
+        return response()->noContent();
     }
 }

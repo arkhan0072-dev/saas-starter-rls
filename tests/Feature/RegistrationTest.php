@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Role;
 use App\Models\Project;
 use App\Models\Tenant;
 use App\Models\User;
@@ -24,6 +25,7 @@ it('creates a tenant with its first user and returns a token', function () {
     $user = User::where('email', 'peter@initech.test')->sole();
 
     expect($user->tenant->name)->toBe('Initech')
+        ->and($user->role)->toBe(Role::Owner)
         ->and($response->json('token'))->toBeString()->not->toBeEmpty()
         ->and($response->json('user'))->toMatchArray(['name' => 'Peter Gibbons', 'email' => 'peter@initech.test', 'tenant_id' => $user->tenant_id])
         ->and($response->json('user'))->not->toHaveKey('password');

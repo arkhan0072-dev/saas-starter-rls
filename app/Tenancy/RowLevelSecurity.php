@@ -22,4 +22,10 @@ class RowLevelSecurity
         DB::statement("alter table {$table} force row level security");
         DB::statement("create policy tenant_isolation on {$table} using (tenant_id = {$current}) with check (tenant_id = {$current})");
     }
+
+    /** The role the application connects as, quoted for use in SQL. */
+    public static function appRole(): string
+    {
+        return DB::getQueryGrammar()->wrap(config()->string('database.connections.pgsql.username'));
+    }
 }

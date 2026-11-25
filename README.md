@@ -4,7 +4,7 @@
 
 A multi-tenant Laravel starter where **PostgreSQL itself keeps tenants apart**. Every tenant table has a row-level security (RLS) policy, so a query that forgets `where tenant_id = ?`, a raw SQL report or a bug in a package still cannot read or change another tenant's data.
 
-> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, and a tenant-scoped API for one example resource (projects).
+> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, and a tenant-scoped API for one example resource (projects).
 
 ## Why RLS
 
@@ -72,6 +72,11 @@ All tests run against real PostgreSQL as the restricted `app` role. The isolatio
 | New sign-up while other tenants have data | starts with an empty workspace |
 | User creation fails during sign-up | no tenant is left behind |
 | Sixth login attempt in a minute | 429 Too Many Requests |
+| Admin deletes another tenant's project by id | 404, the row is invisible |
+| Member tries to invite or delete | 403 |
+| Invitation for the `owner` role | rejected |
+| Invitation accepted twice, expired, or with a made-up code | rejected |
+| Invitations queried with no tenant, or from another tenant | none visible |
 | After a request or a failed `run()` | tenant is cleared |
 
 CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100% line coverage minimum.
@@ -85,6 +90,9 @@ CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100%
 | `POST` | `/api/logout` | token | Revokes the token used for the request |
 | `GET` | `/api/projects` | token | The tenant's projects |
 | `POST` | `/api/projects` | token | Create a project in the tenant |
+| `DELETE` | `/api/projects/{id}` | token, owner or admin | Delete a project; another tenant's id answers 404 |
+| `POST` | `/api/invitations` | token, owner or admin | Invite someone by email as `admin` or `member`. Re-inviting replaces the pending invitation |
+| `POST` | `/api/invitations/accept` | | Create an account from an invitation code; it joins the inviting tenant with the invited role |
 
 ```bash
 curl -X POST http://localhost:8000/api/register   -H "Accept: application/json" -H "Content-Type: application/json"   -d '{"company":"Initech","name":"Peter","email":"peter@initech.test","password":"correct-horse-battery","password_confirmation":"correct-horse-battery"}'
@@ -93,6 +101,20 @@ curl http://localhost:8000/api/projects -H "Accept: application/json" -H "Author
 ```
 
 Sign-in failures return the same message whether the email exists or not, and take the same time, so the API does not reveal which emails are registered.
+
+## Roles and invitations
+
+Each user has one role in their tenant: **owner** (whoever signed up), **admin** or **member**. Owners and admins can invite people and delete shared data; members cannot.
+
+Invitations are tenant data, so they are protected by RLS like everything else. That raises a problem: the person accepting an invitation is not signed in yet, so no tenant is set and the invitation is invisible. Instead of turning RLS off, one narrow `security definer` function answers a single question with the owner's rights:
+
+```sql
+create function invitation_tenant(p_token_hash text) returns bigint
+language sql stable security definer set search_path = public
+as $$ select tenant_id from invitations where token_hash = p_token_hash and accepted_at is null $$;
+```
+
+The app then switches into that tenant and does the rest under RLS as usual: loads the invitation with a row lock (two simultaneous accepts cannot both succeed), checks the expiry, creates the user and marks the invitation used. The emailed code is never stored, only its SHA-256 hash.
 
 ## Quick start
 
@@ -111,6 +133,7 @@ vendor/bin/pest                            # tests
 - **The tenant lives on the database connection** (`set_config(..., false)`), not in a global PHP variable that queries would have to remember to read.
 - **`users`, `tenants` and `personal_access_tokens` have no RLS.** Sign-in and token lookup must find a user before any tenant is known. Tables holding customer data get RLS.
 - **Sign-up is one transaction.** If creating the user fails, the new tenant is rolled back too, so there are no tenants without an owner.
+- **Tenant before route model binding.** `SetTenant` is placed ahead of `SubstituteBindings` in the middleware priority, otherwise binding would look up `{project}` before the tenant is set and RLS would hide it.
 - **Default privileges instead of per-table grants.** The first migration grants the `app` role access to every table the owner creates later, so a new table cannot be forgotten.
 
 ## Not included yet
@@ -118,7 +141,8 @@ vendor/bin/pest                            # tests
 - **Tenant context for queued jobs and scheduled commands.** They must call `Tenancy::run()` themselves for now.
 - **Connection poolers in transaction mode** (e.g. PgBouncer) can hand the connection to another request between statements; this needs `set_config(..., true)` inside a transaction per request.
 - Rate limiting and email verification for sign-up.
-- Roles within a tenant, inviting teammates, audit log, subscription billing and an admin panel.
+- Changing a member's role, removing members and transferring ownership.
+- Audit log, subscription billing and an admin panel.
 
 ## License
 
