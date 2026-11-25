@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\Role;
+use App\Models\Concerns\Audited;
 use App\Tenancy\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -23,7 +24,7 @@ use Illuminate\Support\Carbon;
 #[Hidden(['token_hash'])]
 class Invitation extends Model
 {
-    use BelongsToTenant;
+    use Audited, BelongsToTenant;
 
     protected function casts(): array
     {

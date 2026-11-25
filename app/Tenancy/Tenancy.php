@@ -5,7 +5,9 @@ namespace App\Tenancy;
 use App\Models\Tenant;
 use Closure;
 use Illuminate\Container\Attributes\Singleton;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * The current tenant, stored on the database connection so PostgreSQL's
@@ -44,9 +46,21 @@ class Tenancy
         $this->set($tenant);
 
         try {
-            return $callback();
-        } finally {
-            $this->set($previous);
+            $result = $callback();
+        } catch (Throwable $e) {
+            try {
+                $this->set($previous);
+            } catch (QueryException) {
+                // A failed query aborted the transaction, so PostgreSQL refuses set_config until rollback.
+                // Report the original error; the rollback and the outer run() restore the setting.
+                $this->id = $previous;
+            }
+
+            throw $e;
         }
+
+        $this->set($previous);
+
+        return $result;
     }
 }

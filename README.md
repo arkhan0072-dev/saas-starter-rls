@@ -4,7 +4,7 @@
 
 A multi-tenant Laravel starter where **PostgreSQL itself keeps tenants apart**. Every tenant table has a row-level security (RLS) policy, so a query that forgets `where tenant_id = ?`, a raw SQL report or a bug in a package still cannot read or change another tenant's data.
 
-> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, and a tenant-scoped API for one example resource (projects).
+> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, and a tenant-scoped API for one example resource (projects).
 
 ## Why RLS
 
@@ -77,6 +77,9 @@ All tests run against real PostgreSQL as the restricted `app` role. The isolatio
 | Invitation for the `owner` role | rejected |
 | Invitation accepted twice, expired, or with a made-up code | rejected |
 | Invitations queried with no tenant, or from another tenant | none visible |
+| Application runs `update` or `delete` on `audit_logs` | permission denied by PostgreSQL |
+| Invitation is logged | token hash is not in the entry |
+| Member opens the audit log | 403 |
 | After a request or a failed `run()` | tenant is cleared |
 
 CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100% line coverage minimum.
@@ -92,6 +95,7 @@ CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100%
 | `POST` | `/api/projects` | token | Create a project in the tenant |
 | `DELETE` | `/api/projects/{id}` | token, owner or admin | Delete a project; another tenant's id answers 404 |
 | `POST` | `/api/invitations` | token, owner or admin | Invite someone by email as `admin` or `member`. Re-inviting replaces the pending invitation |
+| `GET` | `/api/audit-log` | token, owner or admin | The tenant's audit log, newest first, 50 per page |
 | `POST` | `/api/invitations/accept` | | Create an account from an invitation code; it joins the inviting tenant with the invited role |
 
 ```bash
@@ -115,6 +119,19 @@ as $$ select tenant_id from invitations where token_hash = p_token_hash and acce
 ```
 
 The app then switches into that tenant and does the rest under RLS as usual: loads the invitation with a row lock (two simultaneous accepts cannot both succeed), checks the expiry, creates the user and marks the invitation used. The emailed code is never stored, only its SHA-256 hash.
+
+## Audit log
+
+Models that use the `Audited` trait (projects and invitations) write an entry for every create, update and delete: who did it, what happened, and what changed.
+
+```json
+{ "action": "project.updated", "user_id": 7, "subject_id": 12,
+  "changes": { "name": { "old": "Draft", "new": "Final" } } }
+```
+
+- **Hidden fields never enter the log.** The invitation token hash is `$hidden` on the model, so it is left out, as passwords would be.
+- **Append-only in the database.** The migration revokes `UPDATE`, `DELETE` and `TRUNCATE` on `audit_logs` from the `app` role, so not even a bug in the application can rewrite history.
+- **Private per tenant**, through the same RLS policy as other tenant data.
 
 ## Quick start
 
@@ -142,7 +159,8 @@ vendor/bin/pest                            # tests
 - **Connection poolers in transaction mode** (e.g. PgBouncer) can hand the connection to another request between statements; this needs `set_config(..., true)` inside a transaction per request.
 - Rate limiting and email verification for sign-up.
 - Changing a member's role, removing members and transferring ownership.
-- Audit log, subscription billing and an admin panel.
+- Writing the audit entry in the same transaction as the change it records (today it follows the change).
+- Subscription billing and an admin panel.
 
 ## License
 

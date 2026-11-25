@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Audited;
 use App\Tenancy\BelongsToTenant;
 use Database\Factories\ProjectFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -13,5 +14,5 @@ use Illuminate\Database\Eloquent\Model;
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
-    use BelongsToTenant, HasFactory;
+    use Audited, BelongsToTenant, HasFactory;
 }

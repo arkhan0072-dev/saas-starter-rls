@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\ProjectController;
@@ -19,5 +20,6 @@ Route::middleware(['auth:sanctum', SetTenant::class])->group(function () {
     Route::middleware('can:manage-tenant')->group(function () {
         Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
         Route::post('/invitations', [InvitationController::class, 'store']);
+        Route::get('/audit-log', [AuditLogController::class, 'index']);
     });
 });
