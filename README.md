@@ -4,7 +4,7 @@
 
 A multi-tenant Laravel starter where **PostgreSQL itself keeps tenants apart**. Every tenant table has a row-level security (RLS) policy, so a query that forgets `where tenant_id = ?`, a raw SQL report or a bug in a package still cannot read or change another tenant's data.
 
-> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, and a tenant-scoped API for one example resource (projects).
+> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, tenant-aware queued jobs, and a tenant-scoped API for one example resource (projects).
 
 ## Why RLS
 
@@ -80,6 +80,9 @@ All tests run against real PostgreSQL as the restricted `app` role. The isolatio
 | Application runs `update` or `delete` on `audit_logs` | permission denied by PostgreSQL |
 | Invitation is logged | token hash is not in the entry |
 | Member opens the audit log | 403 |
+| Job dispatched by tenant A, run by a worker with no tenant | sees only A's rows |
+| Tenant job dispatched with no tenant | fails instead of running |
+| After a job finishes | worker's tenant is cleared |
 | After a request or a failed `run()` | tenant is cleared |
 
 CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100% line coverage minimum.
@@ -95,6 +98,7 @@ CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100%
 | `POST` | `/api/projects` | token | Create a project in the tenant |
 | `DELETE` | `/api/projects/{id}` | token, owner or admin | Delete a project; another tenant's id answers 404 |
 | `POST` | `/api/invitations` | token, owner or admin | Invite someone by email as `admin` or `member`. Re-inviting replaces the pending invitation |
+| `POST` | `/api/projects/export` | token, owner or admin | Queue a CSV export of the tenant's projects; answers 202 |
 | `GET` | `/api/audit-log` | token, owner or admin | The tenant's audit log, newest first, 50 per page |
 | `POST` | `/api/invitations/accept` | | Create an account from an invitation code; it joins the inviting tenant with the invited role |
 
@@ -133,6 +137,32 @@ Models that use the `Audited` trait (projects and invitations) write an entry fo
 - **Append-only in the database.** The migration revokes `UPDATE`, `DELETE` and `TRUNCATE` on `audit_logs` from the `app` role, so not even a bug in the application can rewrite history.
 - **Private per tenant**, through the same RLS policy as other tenant data.
 
+## Queued jobs
+
+A queue worker has no request and no signed-in user, so on its own it would run every job with no tenant and RLS would hide all rows. Instead:
+
+1. Every queue payload records the tenant that was current at dispatch (`Queue::createPayloadUsing` in `AppServiceProvider`).
+2. Jobs that use the `TenantAware` trait get the `RestoreTenant` middleware, which switches into that tenant for the job and back out afterwards.
+3. Inside the job, `$this->tenantId()` throws if there is no tenant, so a job dispatched from the wrong place fails loudly instead of quietly exporting nothing.
+
+```php
+class ExportProjects implements ShouldQueue
+{
+    use Queueable, TenantAware;
+
+    public function handle(): void
+    {
+        $tenantId = $this->tenantId();               // fails if dispatched outside a tenant
+        $projects = Project::orderBy('id')->get();   // RLS: only this tenant's rows
+        // ...
+    }
+}
+```
+
+The tests push jobs through the real database queue and a `queue:work` worker, so they prove the tenant really travels with the job.
+
+One pitfall the tests caught: `Job::dispatch()` queues the job when its `PendingDispatch` is destroyed. Inside `Tenancy::run($tenant, fn () => Job::dispatch())` that happens after `run()` has already cleared the tenant, so use a statement body: `function () { Job::dispatch(); }`.
+
 ## Quick start
 
 Requirements: PHP 8.3+, Composer, Docker.
@@ -155,7 +185,7 @@ vendor/bin/pest                            # tests
 
 ## Not included yet
 
-- **Tenant context for queued jobs and scheduled commands.** They must call `Tenancy::run()` themselves for now.
+- **Scheduled commands** must call `Tenancy::run()` for each tenant themselves.
 - **Connection poolers in transaction mode** (e.g. PgBouncer) can hand the connection to another request between statements; this needs `set_config(..., true)` inside a transaction per request.
 - Rate limiting and email verification for sign-up.
 - Changing a member's role, removing members and transferring ownership.

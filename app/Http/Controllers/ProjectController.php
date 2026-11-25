@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ExportProjects;
 use App\Models\Project;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
@@ -20,6 +22,13 @@ class ProjectController extends Controller
         $request->validate(['name' => ['required', 'string', 'max:255']]);
 
         return new JsonResource(Project::create(['name' => $request->string('name')->value()]));
+    }
+
+    public function export(): JsonResponse
+    {
+        ExportProjects::dispatch();
+
+        return response()->json(['message' => 'Export started.'], 202);
     }
 
     public function destroy(Project $project): Response

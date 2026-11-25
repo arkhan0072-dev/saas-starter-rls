@@ -18,6 +18,7 @@ Route::middleware(['auth:sanctum', SetTenant::class])->group(function () {
     Route::post('/projects', [ProjectController::class, 'store']);
 
     Route::middleware('can:manage-tenant')->group(function () {
+        Route::post('/projects/export', [ProjectController::class, 'export']);
         Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
         Route::post('/invitations', [InvitationController::class, 'store']);
         Route::get('/audit-log', [AuditLogController::class, 'index']);
