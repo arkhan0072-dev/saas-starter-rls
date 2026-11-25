@@ -6,6 +6,7 @@ use Database\Factories\TenantFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -35,6 +36,12 @@ class Tenant extends Model
             'current_period_end' => 'datetime',
             'subscription_synced_at' => 'datetime',
         ];
+    }
+
+    /** @return HasMany<User, $this> */
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class);
     }
 
     /** A paid plan counts only while Stripe considers the subscription in good standing. */

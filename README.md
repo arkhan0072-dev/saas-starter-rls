@@ -4,7 +4,7 @@
 
 A multi-tenant Laravel starter where **PostgreSQL itself keeps tenants apart**. Every tenant table has a row-level security (RLS) policy, so a query that forgets `where tenant_id = ?`, a raw SQL report or a bug in a package still cannot read or change another tenant's data.
 
-> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, tenant-aware queued jobs, Stripe billing with verified webhooks, and a tenant-scoped API for one example resource (projects).
+> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, tenant-aware queued jobs, Stripe billing with verified webhooks, a read-only staff admin panel, and a tenant-scoped API for one example resource (projects).
 
 ## Why RLS
 
@@ -87,6 +87,8 @@ All tests run against real PostgreSQL as the restricted `app` role. The isolatio
 | Fourth project on the free plan, or with payment overdue | 403 with an upgrade message |
 | Admin or member starts checkout | 403 |
 | Stripe API down during checkout | 502 with a retry message |
+| Signed-in customer opens `/admin` | sent to the staff login |
+| Staff list tenants and users | plan, status and user counts shown; no create or edit pages exist |
 | Tenant job dispatched with no tenant | fails instead of running |
 | After a job finishes | worker's tenant is cleared |
 | After a request or a failed `run()` | tenant is cleared |
@@ -185,6 +187,16 @@ The webhook is where billing usually goes wrong, so it is strict:
 
 Stripe is called with Laravel's HTTP client rather than the SDK (two endpoints), and faked in the tests.
 
+## Admin panel
+
+Platform staff sign in at `/admin`, a [Filament](https://filamentphp.com) panel with its own `admins` table and `admin` guard: a customer's account can never sign in there, even with a valid session.
+
+Staff see what running the business needs: tenants with plan, subscription status, renewal date, user count and Stripe customer id, and users with their tenant and role. The panel is read-only (plans change through Stripe, not by hand).
+
+It deliberately has **no view of customer data**. Projects, invitations and audit logs sit behind RLS, and the panel connects as the same restricted `app` role with no tenant set, so even a future screen added by mistake would show nothing.
+
+Create a staff account with `php artisan make:filament-user`.
+
 ## Quick start
 
 Requirements: PHP 8.3+, Composer, Docker.
@@ -213,7 +225,7 @@ vendor/bin/pest                            # tests
 - Changing a member's role, removing members and transferring ownership.
 - Writing the audit entry in the same transaction as the change it records (today it follows the change).
 - Stripe Billing Portal (manage card, cancel), invoices and proration.
-- An admin panel.
+- Staff support tooling that needs customer data (for example impersonation), which would need an audited, time-limited way into one tenant.
 
 ## License
 

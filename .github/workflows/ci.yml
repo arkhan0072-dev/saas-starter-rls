@@ -58,7 +58,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_pgsql
+          extensions: pdo_pgsql, intl
           coverage: pcov
 
       - run: composer install --prefer-dist --no-interaction --no-progress
