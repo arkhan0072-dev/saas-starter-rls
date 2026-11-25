@@ -4,7 +4,7 @@
 
 A multi-tenant Laravel starter where **PostgreSQL itself keeps tenants apart**. Every tenant table has a row-level security (RLS) policy, so a query that forgets `where tenant_id = ?`, a raw SQL report or a bug in a package still cannot read or change another tenant's data.
 
-> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, tenant-scoped API for one example resource (projects).
+> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, and a tenant-scoped API for one example resource (projects).
 
 ## Why RLS
 
@@ -69,9 +69,30 @@ All tests run against real PostgreSQL as the restricted `app` role. The isolatio
 | Tenant A moves a row to Tenant B | rejected by PostgreSQL |
 | Client sends `tenant_id` of another tenant in the API | ignored |
 | Tenant middleware used without `auth` | 401, nothing runs |
+| New sign-up while other tenants have data | starts with an empty workspace |
+| User creation fails during sign-up | no tenant is left behind |
+| Sixth login attempt in a minute | 429 Too Many Requests |
 | After a request or a failed `run()` | tenant is cleared |
 
 CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100% line coverage minimum.
+
+## API
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/register` | | Sign up a company: creates its tenant and first user together, returns an API token |
+| `POST` | `/api/login` | | Returns an API token. Limited to 5 attempts a minute per email and IP address |
+| `POST` | `/api/logout` | token | Revokes the token used for the request |
+| `GET` | `/api/projects` | token | The tenant's projects |
+| `POST` | `/api/projects` | token | Create a project in the tenant |
+
+```bash
+curl -X POST http://localhost:8000/api/register   -H "Accept: application/json" -H "Content-Type: application/json"   -d '{"company":"Initech","name":"Peter","email":"peter@initech.test","password":"correct-horse-battery","password_confirmation":"correct-horse-battery"}'
+
+curl http://localhost:8000/api/projects -H "Accept: application/json" -H "Authorization: Bearer <token>"
+```
+
+Sign-in failures return the same message whether the email exists or not, and take the same time, so the API does not reveal which emails are registered.
 
 ## Quick start
 
@@ -88,14 +109,16 @@ vendor/bin/pest                            # tests
 ## Design decisions
 
 - **The tenant lives on the database connection** (`set_config(..., false)`), not in a global PHP variable that queries would have to remember to read.
-- **`users` and `tenants` have no RLS.** Sign-in must find a user before any tenant is known. Tables holding customer data get RLS.
+- **`users`, `tenants` and `personal_access_tokens` have no RLS.** Sign-in and token lookup must find a user before any tenant is known. Tables holding customer data get RLS.
+- **Sign-up is one transaction.** If creating the user fails, the new tenant is rolled back too, so there are no tenants without an owner.
 - **Default privileges instead of per-table grants.** The first migration grants the `app` role access to every table the owner creates later, so a new table cannot be forgotten.
 
 ## Not included yet
 
 - **Tenant context for queued jobs and scheduled commands.** They must call `Tenancy::run()` themselves for now.
 - **Connection poolers in transaction mode** (e.g. PgBouncer) can hand the connection to another request between statements; this needs `set_config(..., true)` inside a transaction per request.
-- Sign-up that creates a tenant, API tokens, roles within a tenant, audit log, subscription billing and an admin panel.
+- Rate limiting and email verification for sign-up.
+- Roles within a tenant, inviting teammates, audit log, subscription billing and an admin panel.
 
 ## License
 

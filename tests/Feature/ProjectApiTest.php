@@ -17,37 +17,37 @@ beforeEach(function () {
 });
 
 it('lists only the signed-in user\'s tenant projects', function () {
-    $this->actingAs($this->alice)
-        ->getJson('/projects')
+    $this->actingAs($this->alice, 'sanctum')
+        ->getJson('/api/projects')
         ->assertOk()
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.name', 'Acme launch');
 });
 
 it('creates a project in the user\'s tenant', function () {
-    $this->actingAs($this->alice)
-        ->postJson('/projects', ['name' => 'Q3 plan'])
+    $this->actingAs($this->alice, 'sanctum')
+        ->postJson('/api/projects', ['name' => 'Q3 plan'])
         ->assertCreated()
         ->assertJsonPath('data.name', 'Q3 plan')
         ->assertJsonPath('data.tenant_id', $this->acme->id);
 });
 
 it('ignores a tenant_id sent by the client', function () {
-    $this->actingAs($this->alice)
-        ->postJson('/projects', ['name' => 'Sneaky', 'tenant_id' => $this->globex->id])
+    $this->actingAs($this->alice, 'sanctum')
+        ->postJson('/api/projects', ['name' => 'Sneaky', 'tenant_id' => $this->globex->id])
         ->assertCreated()
         ->assertJsonPath('data.tenant_id', $this->acme->id);
 });
 
 it('validates the project name', function () {
-    $this->actingAs($this->alice)
-        ->postJson('/projects', ['name' => ''])
+    $this->actingAs($this->alice, 'sanctum')
+        ->postJson('/api/projects', ['name' => ''])
         ->assertUnprocessable()
         ->assertJsonValidationErrors('name');
 });
 
 it('requires authentication', function () {
-    $this->getJson('/projects')->assertUnauthorized();
+    $this->getJson('/api/projects')->assertUnauthorized();
 });
 
 it('refuses the request if the tenant middleware runs without auth', function () {
@@ -57,7 +57,7 @@ it('refuses the request if the tenant middleware runs without auth', function ()
 });
 
 it('clears the tenant after the request', function () {
-    $this->actingAs($this->alice)->getJson('/projects')->assertOk();
+    $this->actingAs($this->alice, 'sanctum')->getJson('/api/projects')->assertOk();
 
     expect(app(Tenancy::class)->id())->toBeNull();
 });
