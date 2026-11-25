@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Enums\Role;
 use App\Models\User;
 use App\Tenancy\Tenancy;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -19,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
         Queue::createPayloadUsing(fn () => ['tenant_id' => app(Tenancy::class)->id()]);
 
         Gate::define('manage-tenant', fn (User $user) => $user->role->canManage());
+        Gate::define('manage-billing', fn (User $user) => $user->role === Role::Owner);
 
         // Five login attempts a minute per email and IP address.
         RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)->by(

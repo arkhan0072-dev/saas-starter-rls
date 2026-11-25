@@ -4,7 +4,7 @@
 
 A multi-tenant Laravel starter where **PostgreSQL itself keeps tenants apart**. Every tenant table has a row-level security (RLS) policy, so a query that forgets `where tenant_id = ?`, a raw SQL report or a bug in a package still cannot read or change another tenant's data.
 
-> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, tenant-aware queued jobs, and a tenant-scoped API for one example resource (projects).
+> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, tenant-aware queued jobs, Stripe billing with verified webhooks, and a tenant-scoped API for one example resource (projects).
 
 ## Why RLS
 
@@ -81,6 +81,12 @@ All tests run against real PostgreSQL as the restricted `app` role. The isolatio
 | Invitation is logged | token hash is not in the entry |
 | Member opens the audit log | 403 |
 | Job dispatched by tenant A, run by a worker with no tenant | sees only A's rows |
+| Webhook with a forged, missing or 6-minute-old signature | 400, nothing changes |
+| Same webhook event delivered twice | applied once |
+| Older subscription event arriving after a newer one | ignored |
+| Fourth project on the free plan, or with payment overdue | 403 with an upgrade message |
+| Admin or member starts checkout | 403 |
+| Stripe API down during checkout | 502 with a retry message |
 | Tenant job dispatched with no tenant | fails instead of running |
 | After a job finishes | worker's tenant is cleared |
 | After a request or a failed `run()` | tenant is cleared |
@@ -99,6 +105,8 @@ CI runs Pint, PHPStan at max level, and the tests on PHP 8.3 and 8.4 with a 100%
 | `DELETE` | `/api/projects/{id}` | token, owner or admin | Delete a project; another tenant's id answers 404 |
 | `POST` | `/api/invitations` | token, owner or admin | Invite someone by email as `admin` or `member`. Re-inviting replaces the pending invitation |
 | `POST` | `/api/projects/export` | token, owner or admin | Queue a CSV export of the tenant's projects; answers 202 |
+| `POST` | `/api/billing/checkout` | token, owner | Returns a Stripe Checkout link for the pro plan |
+| `POST` | `/api/stripe/webhook` | Stripe signature | Subscription events from Stripe |
 | `GET` | `/api/audit-log` | token, owner or admin | The tenant's audit log, newest first, 50 per page |
 | `POST` | `/api/invitations/accept` | | Create an account from an invitation code; it joins the inviting tenant with the invited role |
 
@@ -163,6 +171,20 @@ The tests push jobs through the real database queue and a `queue:work` worker, s
 
 One pitfall the tests caught: `Job::dispatch()` queues the job when its `PendingDispatch` is destroyed. Inside `Tenancy::run($tenant, fn () => Job::dispatch())` that happens after `run()` has already cleared the tenant, so use a statement body: `function () { Job::dispatch(); }`.
 
+## Billing
+
+Plans: **free** (up to 3 projects) and **pro** (unlimited). Owners start an upgrade with `POST /api/billing/checkout`, which creates the Stripe customer on first use and returns a Stripe Checkout link. The tenant is upgraded only when Stripe confirms it through the webhook, never by the checkout request itself.
+
+The webhook is where billing usually goes wrong, so it is strict:
+
+- **Signature verified** (`StripeSignature`): HMAC-SHA256 of `timestamp.payload` with the endpoint secret, compared in constant time; several `v1` signatures are accepted while a secret is being rolled.
+- **Replays refused**: a correctly signed request more than 5 minutes old is rejected.
+- **Each event applied once**: event ids go into `stripe_events` with `insert ... on conflict do nothing`, in the same transaction as the change. If applying fails, the id is rolled back too, so Stripe's retry still works.
+- **Out-of-order delivery handled**: the tenant stores the creation time of the last event applied, and older events arriving late are ignored.
+- **Good standing only**: pro limits apply while Stripe reports `active` or `trialing`; `past_due` falls back to free limits.
+
+Stripe is called with Laravel's HTTP client rather than the SDK (two endpoints), and faked in the tests.
+
 ## Quick start
 
 Requirements: PHP 8.3+, Composer, Docker.
@@ -190,7 +212,8 @@ vendor/bin/pest                            # tests
 - Rate limiting and email verification for sign-up.
 - Changing a member's role, removing members and transferring ownership.
 - Writing the audit entry in the same transaction as the change it records (today it follows the change).
-- Subscription billing and an admin panel.
+- Stripe Billing Portal (manage card, cancel), invoices and proration.
+- An admin panel.
 
 ## License
 

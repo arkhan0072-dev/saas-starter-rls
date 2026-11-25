@@ -28,6 +28,15 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET', ''),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET', ''),
+        // Stripe price id for each paid plan.
+        'prices' => [
+            'pro' => env('STRIPE_PRICE_PRO', ''),
+        ],
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
