@@ -4,7 +4,7 @@
 
 A multi-tenant Laravel starter where **PostgreSQL itself keeps tenants apart**. Every tenant table has a row-level security (RLS) policy, so a query that forgets `where tenant_id = ?`, a raw SQL report or a bug in a package still cannot read or change another tenant's data.
 
-> Work in progress. Implemented so far: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, tenant-aware queued jobs, Stripe billing with verified webhooks, a read-only staff admin panel, and a tenant-scoped API for one example resource (projects).
+> Includes: tenant isolation with RLS, a restricted database role, sign-up and token login, roles and email invitations, an append-only audit log, tenant-aware queued jobs, Stripe billing with verified webhooks, a read-only staff admin panel, and a tenant-scoped API for one example resource (projects).
 
 ## Why RLS
 
